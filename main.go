@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path"
+	"strings"
 )
 
 
@@ -51,8 +53,16 @@ func dirFiles(baseDir string) (files []string) {
 	return
 }
 
+func readCommitId(gitdir, branch string) string {
+	file, _ := os.Open(path.Join(gitdir, "refs/heads", branch))
+	bytes, _ := ioutil.ReadAll(file)
+	return strings.TrimSpace(string(bytes))
+}
+
 func main() {
 	dir := gitdir()
 	branches := gitBranches(dir)
-	fmt.Println(branches)
+	for _, branch := range branches {
+		fmt.Println(branch + " | " + readCommitId(dir, branch))
+	}
 }
