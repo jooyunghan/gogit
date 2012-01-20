@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"compress/zlib"
 	"encoding/hex"
@@ -58,17 +59,24 @@ func dirFiles(baseDir string) (files []string) {
 	return
 }
 
-func readCommitId(gitdir, branch string) string {
-	file, _ := os.Open(path.Join(gitdir, "refs/heads", branch))
-	bytes, _ := ioutil.ReadAll(file)
-	return strings.TrimSpace(string(bytes))
+func readBranch(gitdir, branch string) (string, bool) {
+	file, err := os.Open(path.Join(gitdir, "refs/heads", branch))
+	if err != nil {
+		return "", false
+	}
+	defer file.Close()
+	buf := make([]byte, 40)
+	if n, _ := file.Read(buf); n < 40  {
+		return "", false
+	}
+	return string(buf), true
 }
 
 func readObject(gitdir, objId string) []byte {
 	objPath := path.Join(gitdir, "objects", objId[:2], objId[2:])
 	file, err := os.Open(objPath)
 	if err != nil {
-		panic("failed to open Object: " + objId)
+		panic("failed to open Object: " + objId + ":" + hex.EncodeToString([]byte(objId)))
 	}
 
 	r, _ := zlib.NewReader(file)
@@ -90,7 +98,9 @@ func readInt(b []byte) (value int, byteLength int) {
 }
 
 type commit struct {
-	props map[string]string
+	id   string
+	tree string
+	parent []string
 	message string
 }
 
@@ -116,25 +126,27 @@ func readTag(b []byte) (tag, []byte) {
 	return tag{elements[0], atoi(elements[1])}, b[index+1:]
 }
 
-func parseCommit(b []byte) commit {
+func parseCommit(b []byte) *commit {
+	c := new(commit)
 	_, rest := readTag(b)
 	buf := bytes.NewBuffer(rest)
-	props := make(map[string]string)
-	message := ""
-
+	r := bufio.NewReader(buf)
 	for {
-		line,_ := buf.ReadBytes('\n')
-		index := bytes.IndexByte(line, ' ')
-		if index != -1 {
-			field := line[:index]
-			value := line[index+1:]
-			props[string(field)] = strings.TrimSpace(string(value))
-		} else {
-			message = buf.String()
+		line, _, _ := r.ReadLine()
+		if string(line) == "" {
+			c.message = buf.String()
 			break
 		}
+
+		field, value := split(string(line), ' ')
+		switch field {
+		case "tree":
+			c.tree = value
+		case "parent":
+			c.parent = append(c.parent, value)
+		}
 	}
-	return commit{props, message}
+	return c
 }
 
 type entry struct {
@@ -181,14 +193,9 @@ func parseTree(b []byte) *tree {
 	return &tree{entries}
 }
 
-func lsTree(gitdir, branch string) *tree {
-	commitId := readCommitId(gitdir, branch)
-	commitObject := readObject(gitdir, commitId)
-//	fmt.Println(string(commitObject))
-	c := parseCommit(commitObject)
-//	fmt.Println(c.props["tree"])
-	treeObject := readObject(gitdir, c.props["tree"])
-//	fmt.Println(string(treeObject))
+func lsTree(gitdir, commitish string) *tree {
+	c := commitFor(gitdir, commitish)
+	treeObject := readObject(gitdir, c.tree)
 	return parseTree(treeObject)
 }
 
@@ -198,18 +205,37 @@ func catFile(dir, id string) {
 	fmt.Println(string(rest[:10]))
 }
 
+// <commitish> can be a branch name or commit-id
+// if it is a branch name, read commit-id from it
+// returns commit-id 
+func derefCommitish(dir, commitish string) string {
+	if id, ok := readBranch(dir, commitish); ok {
+		return id
+	}
+	return commitish
+}
+
+func commitFor(dir, commitish string) *commit {
+	id := derefCommitish(dir, commitish)
+	c := parseCommit(readObject(dir, id))
+	c.id = id
+	return c
+}
+
+func revList(dir, branch string) {
+	c := commitFor(dir, branch)
+	fmt.Println(c.id)
+	for _, p := range c.parent {
+		revList(dir, p)
+	}
+}
+
 func main() {
 	dir := gitdir()
 	branches := gitBranches(dir)
 	firstBranch := branches[0]
-	t := lsTree(dir, firstBranch)
-	for _, e := range t.entries {
-		if e.isBlob() {
-			fmt.Println(">>> ", e.name)
-			catFile(dir, e.id)
-			fmt.Println("...")
-		}
-	}
+	lsTree(dir, firstBranch)
+	revList(dir, firstBranch)
 	fmt.Print("ok")
 	io.Copy(os.Stdout, strings.NewReader("\n"))
 }
