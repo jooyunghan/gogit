@@ -143,6 +143,10 @@ type entry struct {
 	id   string
 }
 
+func (e *entry) isBlob() bool {
+	return e.mode != 40000
+}
+
 type tree struct {
 	entries []*entry
 }
@@ -177,7 +181,7 @@ func parseTree(b []byte) *tree {
 	return &tree{entries}
 }
 
-func lsTree(gitdir, branch string) {
+func lsTree(gitdir, branch string) *tree {
 	commitId := readCommitId(gitdir, branch)
 	commitObject := readObject(gitdir, commitId)
 //	fmt.Println(string(commitObject))
@@ -185,15 +189,27 @@ func lsTree(gitdir, branch string) {
 //	fmt.Println(c.props["tree"])
 	treeObject := readObject(gitdir, c.props["tree"])
 //	fmt.Println(string(treeObject))
-	t := parseTree(treeObject)
-	t.Print()
+	return parseTree(treeObject)
+}
+
+func catFile(dir, id string) {
+	object := readObject(dir, id)
+	_, rest := readTag(object)
+	fmt.Println(string(rest[:10]))
 }
 
 func main() {
 	dir := gitdir()
 	branches := gitBranches(dir)
 	firstBranch := branches[0]
-	lsTree(dir, firstBranch)
+	t := lsTree(dir, firstBranch)
+	for _, e := range t.entries {
+		if e.isBlob() {
+			fmt.Println(">>> ", e.name)
+			catFile(dir, e.id)
+			fmt.Println("...")
+		}
+	}
 	fmt.Print("ok")
 	io.Copy(os.Stdout, strings.NewReader("\n"))
 }
