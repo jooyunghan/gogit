@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"compress/zlib"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 )
 
@@ -92,14 +94,31 @@ type commit struct {
 	message string
 }
 
+type tag struct {
+	objectType string
+	size int
+}
+
+func atoi(s string) int {
+	n, err := strconv.ParseInt(s, 10, 0)
+	if err != nil {
+		panic(err)
+	}
+	return int(n)
+}
+
+func readTag(b []byte) (tag, []byte) {
+	index := bytes.IndexByte(b, byte(0))
+	if index == -1 {
+		panic("no tag")
+	}
+	elements := strings.Split(string(b[:index]), " ")
+	return tag{elements[0], atoi(elements[1])}, b[index+1:]
+}
+
 func parseCommit(b []byte) commit {
-	typeTag := string(b[:6])
-	fmt.Println(typeTag)
-
-	size, sizeLength := readInt(b[7:])
-	fmt.Println(size)
-
-	buf := bytes.NewBuffer(b[7+sizeLength+1:size])
+	_, rest := readTag(b)
+	buf := bytes.NewBuffer(rest)
 	props := make(map[string]string)
 	message := ""
 
@@ -108,7 +127,6 @@ func parseCommit(b []byte) commit {
 		index := bytes.IndexByte(line, ' ')
 		if index != -1 {
 			field := line[:index]
-			fmt.Println(field)
 			value := line[index+1:]
 			props[string(field)] = strings.TrimSpace(string(value))
 		} else {
@@ -123,19 +141,31 @@ func parseCommit(b []byte) commit {
 type tree struct {
 }
 
-
 func parseTree(b []byte) tree {
+	_, rest := readTag(b)
+	for rest != nil {
+		index := bytes.IndexByte(rest, byte(0))
+		if index == -1 {
+			break
+		}
+		fmt.Println(string(rest[:index]))
+		objId := hex.EncodeToString(rest[index+1:][:20])
+		fmt.Println(objId)
+		rest = rest[index+21:]
+	}
 	return tree{}
 }
 
 func lsTree(gitdir, branch string) {
 	commitId := readCommitId(gitdir, branch)
 	commitObject := readObject(gitdir, commitId)
+//	fmt.Println(string(commitObject))
 	c := parseCommit(commitObject)
-	fmt.Println(c.props["tree"])
+//	fmt.Println(c.props["tree"])
 	treeObject := readObject(gitdir, c.props["tree"])
-	//t := parseTree(treeObject)
 	fmt.Println(string(treeObject))
+	t := parseTree(treeObject)
+	fmt.Println(t)
 }
 
 func main() {
