@@ -137,23 +137,44 @@ func parseCommit(b []byte) commit {
 	return commit{props, message}
 }
 
-
-type tree struct {
+type entry struct {
+	mode int
+	name string
+	id   string
 }
 
-func parseTree(b []byte) tree {
+type tree struct {
+	entries []*entry
+}
+
+func (t *tree) Print() {
+	for _, e := range t.entries {
+		fmt.Println(e.mode, e.id, e.name)
+	}
+}
+
+func split(s string, sep rune) (a, b string) {
+	index := strings.IndexRune(s, sep)
+	if index == -1 {
+		return s, ""
+	}
+	return s[:index], s[index+1:]
+}
+
+func parseTree(b []byte) *tree {
+	var entries []*entry
 	_, rest := readTag(b)
 	for rest != nil {
 		index := bytes.IndexByte(rest, byte(0))
 		if index == -1 {
 			break
 		}
-		fmt.Println(string(rest[:index]))
+		mode, name := split(string(rest[:index]), ' ')
 		objId := hex.EncodeToString(rest[index+1:][:20])
-		fmt.Println(objId)
+		entries = append(entries, &entry{atoi(mode), name, objId})
 		rest = rest[index+21:]
 	}
-	return tree{}
+	return &tree{entries}
 }
 
 func lsTree(gitdir, branch string) {
@@ -163,9 +184,9 @@ func lsTree(gitdir, branch string) {
 	c := parseCommit(commitObject)
 //	fmt.Println(c.props["tree"])
 	treeObject := readObject(gitdir, c.props["tree"])
-	fmt.Println(string(treeObject))
+//	fmt.Println(string(treeObject))
 	t := parseTree(treeObject)
-	fmt.Println(t)
+	t.Print()
 }
 
 func main() {
