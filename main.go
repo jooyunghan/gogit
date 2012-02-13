@@ -230,6 +230,10 @@ func revList(dir, branch string) {
 	}
 }
 
+// cat-file -t <SHA-1>
+// : prints SHA-1's type (commit, blob, tree, tag)
+// cat-file <type> <SHA-1>
+// : prints SHA-1's contents according to the type
 func main() {
 	dir := gitdir()
 	branches := gitBranches(dir)
